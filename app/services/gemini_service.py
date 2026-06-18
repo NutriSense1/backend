@@ -1,12 +1,19 @@
 """
-Wraps the Gemini 2.5 Flash API for two jobs in the scan pipeline:
+Wraps the Gemini API for two jobs in the scan pipeline:
   1. Identifying food from a photo (product name, brand, type, ingredients)
   2. Generating the human-readable AI verdict + pros/cons/recommendations
      once we already have real nutrition numbers (from Open Food Facts or
      Gemini's own estimate).
 
 Uses the official google-genai SDK.
+
+Model selection: every call goes through `_generate`, which tries the
+primary model (settings.gemini_model, "gemini-3.5-flash") first, retrying
+up to `gemini_max_retries` times. If the primary model still fails after
+all retries, it falls back to settings.gemini_fallback_model
+("gemini-3.1-flash-lite") and retries that too before finally giving up.
 """
+import asyncio
 import json
 import logging
 from google import genai
@@ -21,6 +28,42 @@ class GeminiService:
         settings = get_settings()
         self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model = settings.gemini_model
+        self.fallback_model = settings.gemini_fallback_model
+        self.max_retries = max(1, settings.gemini_max_retries)
+
+    async def _generate(self, contents, config) -> "types.GenerateContentResponse":
+        """
+        Calls generate_content with retry-then-fallback:
+          - try self.model up to self.max_retries times
+          - if all of those fail, try self.fallback_model up to
+            self.max_retries times
+          - if everything fails, raise the last error
+        """
+        last_exc: Exception | None = None
+        models_to_try = [self.model]
+        if self.fallback_model and self.fallback_model != self.model:
+            models_to_try.append(self.fallback_model)
+
+        for model_name in models_to_try:
+            for attempt in range(1, self.max_retries + 1):
+                try:
+                    return self.client.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=config,
+                    )
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning(
+                        f"Gemini call failed (model={model_name}, "
+                        f"attempt={attempt}/{self.max_retries}): {exc!r}"
+                    )
+                    if attempt < self.max_retries:
+                        await asyncio.sleep(min(2 ** attempt, 8))
+            logger.error(f"Model '{model_name}' exhausted all retries.")
+
+        assert last_exc is not None
+        raise last_exc
 
     async def identify_food(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
         """
@@ -52,8 +95,7 @@ and make your best reasonable guess rather than refusing. The estimated_nutritio
 is a fallback only used if no packaged-product database match is found later, so make it as
 accurate as you can from visual cues (portion size, visible ingredients, cooking style)."""
 
-        response = self.client.models.generate_content(
-            model=self.model,
+        response = await self._generate(
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt,
@@ -108,8 +150,7 @@ Respond ONLY with valid JSON in this shape:
 Be honest and specific to the actual numbers given — do not be generically positive about
 unhealthy food just to be nice, and do not be alarmist about reasonably healthy food."""
 
-        response = self.client.models.generate_content(
-            model=self.model,
+        response = await self._generate(
             contents=[prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -157,8 +198,7 @@ User: {user_message}
 Reply directly and conversationally in 2-4 sentences. Reference their actual numbers
 when relevant (calories remaining, protein gap, streak, etc). Do not use markdown formatting."""
 
-        response = self.client.models.generate_content(
-            model=self.model,
+        response = await self._generate(
             contents=[prompt],
             config=types.GenerateContentConfig(temperature=0.6),
         )

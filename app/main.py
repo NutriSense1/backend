@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.firebase import init_firebase
+from app.core.keep_alive import keep_alive_loop
 from app.api.routes import users, scan, food_logs, tracking, ai_coach, analytics, achievements
 
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +18,19 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Initializing Firebase Admin SDK...")
     init_firebase()
+
+    keep_alive_task = None
+    settings = get_settings()
+    if settings.keep_alive_enabled:
+        keep_alive_task = asyncio.create_task(
+            keep_alive_loop(settings.keep_alive_interval_seconds)
+        )
+
     logger.info("Startup complete.")
     yield
+
+    if keep_alive_task:
+        keep_alive_task.cancel()
     logger.info("Shutting down.")
 
 
