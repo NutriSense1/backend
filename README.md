@@ -81,7 +81,7 @@ check the terminal logs for the exact error.
 2. In the Render dashboard: **New > Web Service**, connect that repo.
 3. Render will detect `render.yaml` automatically. If not, set manually:
    - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Start Command:** `  `
 4. Under **Environment**, add the same 4 variables from your `.env`
    file (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
    `FIREBASE_SERVICE_ACCOUNT_JSON`, `GEMINI_API_KEY`). Paste the Firebase
