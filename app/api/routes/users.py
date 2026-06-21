@@ -1,9 +1,12 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from firebase_admin import auth as firebase_auth
 from app.core.deps import get_current_user, CurrentUser
 from app.db.supabase_client import get_supabase
 from app.schemas.schemas import OnboardingRequest, UserProfileResponse, UserProfileUpdate
 from app.services import nutrition_calculator as calc
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
 
 
@@ -98,3 +101,37 @@ async def update_my_profile(
         .execute()
     )
     return result.data[0]
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(current_user: CurrentUser = Depends(get_current_user)):
+    """
+    Permanently deletes the signed-in user's account: the app profile row
+    (which cascades to every related table — scan_history, food_logs,
+    water_logs, weight_logs, step_logs, user_achievements, device_tokens,
+    notifications, ai_insights, ai_coach_messages — see the `on delete
+    cascade` foreign keys in the schema) and the underlying Firebase Auth
+    account itself, so they can't just sign back in to a ghost account.
+
+    Deletes the Supabase row first: if Firebase deletion fails (rare —
+    permissions/network), the person still has a clean account with no
+    leftover data rather than a deleted-from-Firebase-but-still-has-all-
+    their-data inconsistent state.
+    """
+    supabase = get_supabase()
+
+    if current_user.db_user is not None:
+        supabase.table("users").delete().eq("id", current_user.id).execute()
+
+    try:
+        firebase_auth.delete_user(current_user.firebase_uid)
+    except Exception:
+        logger.exception(
+            f"Failed to delete Firebase account for uid={current_user.firebase_uid} "
+            "after deleting their Supabase data"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Your data was deleted, but we couldn't remove your sign-in "
+                   "account. Please contact support to finish closing your account.",
+        )

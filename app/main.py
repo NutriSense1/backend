@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.firebase import init_firebase
 from app.core.keep_alive import keep_alive_loop
-from app.api.routes import users, scan, food_logs, tracking, ai_coach, analytics, achievements
+from app.api.routes import users, scan, food_logs, tracking, ai_coach, analytics, achievements, notifications
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,3 +76,4 @@ app.include_router(tracking.router, prefix=prefix)
 app.include_router(ai_coach.router, prefix=prefix)
 app.include_router(analytics.router, prefix=prefix)
 app.include_router(achievements.router, prefix=prefix)
+app.include_router(notifications.router, prefix=prefix)

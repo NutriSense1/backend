@@ -7,6 +7,7 @@ from app.schemas.schemas import (
     WaterLogCreate, WaterLogResponse,
     StepSyncRequest,
 )
+from app.services import achievements_service
 
 router = APIRouter(tags=["tracking"])
 
@@ -40,19 +41,11 @@ async def log_weight(
     )
     total_logs = count.count or 0
     if total_logs >= 10:
-        supabase.table("user_achievements").upsert({
-            "user_id": current_user.id,
-            "achievement_id": "weight_log_10",
-            "is_unlocked": True,
-            "progress": 1.0,
-            "unlocked_at": datetime.utcnow().isoformat(),
-        }, on_conflict="user_id,achievement_id").execute()
+        achievements_service.unlock_achievement(supabase, current_user.id, "weight_log_10")
     else:
-        supabase.table("user_achievements").upsert({
-            "user_id": current_user.id,
-            "achievement_id": "weight_log_10",
-            "progress": round(total_logs / 10, 2),
-        }, on_conflict="user_id,achievement_id").execute()
+        achievements_service.update_progress(
+            supabase, current_user.id, "weight_log_10", round(total_logs / 10, 2)
+        )
 
     return result.data[0]
 
@@ -131,12 +124,6 @@ async def sync_steps(
     }, on_conflict="user_id,date").execute()
 
     if payload.steps >= 10000:
-        supabase.table("user_achievements").upsert({
-            "user_id": current_user.id,
-            "achievement_id": "steps_10k",
-            "is_unlocked": True,
-            "progress": 1.0,
-            "unlocked_at": datetime.utcnow().isoformat(),
-        }, on_conflict="user_id,achievement_id").execute()
+        achievements_service.unlock_achievement(supabase, current_user.id, "steps_10k")
 
     return result.data[0]

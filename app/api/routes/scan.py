@@ -6,6 +6,7 @@ from app.core.deps import require_onboarded_user, CurrentUser
 from app.db.supabase_client import get_supabase
 from app.schemas.schemas import ScanRequest, ScanResultResponse
 from app.services.scan_pipeline import run_scan_pipeline
+from app.services import achievements_service
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -113,10 +114,4 @@ def _maybe_unlock_scan_achievements(supabase, user_id: str, total_scans: int) ->
     achievement_id = milestones.get(total_scans)
     if not achievement_id:
         return
-    supabase.table("user_achievements").upsert({
-        "user_id": user_id,
-        "achievement_id": achievement_id,
-        "is_unlocked": True,
-        "progress": 1.0,
-        "unlocked_at": datetime.utcnow().isoformat(),
-    }, on_conflict="user_id,achievement_id").execute()
+    achievements_service.unlock_achievement(supabase, user_id, achievement_id)

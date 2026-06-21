@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.deps import require_onboarded_user, CurrentUser
 from app.db.supabase_client import get_supabase
 from app.schemas.schemas import FoodLogCreate, FoodLogResponse
+from app.services import achievements_service
 
 router = APIRouter(prefix="/food-logs", tags=["food-logs"])
 
@@ -35,13 +36,7 @@ async def create_food_log(
 
     # Achievement: clean eater (health score 80+)
     if payload.health_score >= 80:
-        supabase.table("user_achievements").upsert({
-            "user_id": current_user.id,
-            "achievement_id": "health_score_80",
-            "is_unlocked": True,
-            "progress": 1.0,
-            "unlocked_at": datetime.utcnow().isoformat(),
-        }, on_conflict="user_id,achievement_id").execute()
+        achievements_service.unlock_achievement(supabase, current_user.id, "health_score_80")
 
     return result.data[0]
 

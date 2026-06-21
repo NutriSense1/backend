@@ -191,3 +191,30 @@ class WeeklyReportResponse(BaseModel):
     goal_adherence_score: float
     daily_calories: list[float]
     daily_health_scores: list[float]
+
+
+# ─── Notifications / Push ──────────────────────────────────────────────────
+
+class DeviceTokenCreate(BaseModel):
+    token: str
+    platform: str  # "android" | "ios" | "web"
+
+
+class DeviceTokenDelete(BaseModel):
+    token: str
+
+
+class NotificationPrefsUpdate(BaseModel):
+    meal_reminders: bool | None = None
+    achievement_alerts: bool | None = None
+    coach_tips: bool | None = None
+    streak_warnings: bool | None = None
+
+
+class NotificationResponse(BaseModel):
+    id: str
+    type: str
+    title: str
+    body: str
+    is_read: bool
+    created_at: str
