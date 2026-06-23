@@ -213,3 +213,59 @@ def get_gemini_service() -> GeminiService:
     if _gemini_service is None:
         _gemini_service = GeminiService()
     return _gemini_service
+
+    async def generate_nutrition_tip(
+        self,
+        user_goal: str,
+        user_name: str,
+        calories_consumed: float,
+        calorie_target: float,
+        protein_consumed: float,
+        protein_target: float,
+        water_consumed: float,
+        water_target: float,
+        meals_logged: int,
+        current_streak: int,
+        dietary_preferences: list[str],
+    ) -> dict:
+        """
+        Generates a fresh, personalised nutrition tip for the home screen,
+        grounded in the user's actual data for today.
+        """
+        pct_cal = round((calories_consumed / calorie_target * 100) if calorie_target else 0)
+        pct_protein = round((protein_consumed / protein_target * 100) if protein_target else 0)
+
+        prompt = f"""You are NutriSense, a friendly AI nutrition coach generating a short home-screen tip.
+
+User: {user_name}
+Goal: {user_goal}
+Dietary preferences: {dietary_preferences or ["none"]}
+Today so far: {calories_consumed:.0f} kcal consumed ({pct_cal}% of {calorie_target:.0f} kcal target), 
+  {protein_consumed:.0f}g protein ({pct_protein}% of {protein_target:.0f}g target),
+  {water_consumed:.1f}L water ({water_consumed:.1f}/{water_target:.1f}L),
+  {meals_logged} meals logged, {current_streak}-day streak.
+
+Generate a short, personalised, actionable nutrition tip for this user RIGHT NOW (not generic advice).
+Reference their actual numbers. Be specific, warm, and motivating. 2-3 sentences maximum.
+
+Respond ONLY with valid JSON:
+{{"title": "short title (4-6 words)", "tip": "the personalised tip (2-3 sentences)"}}"""
+
+        response = await self._generate(
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.7,
+            ),
+        )
+        try:
+            result = json.loads(response.text)
+            return {
+                "title": result.get("title", "Today's Tip"),
+                "tip": result.get("tip", "Keep logging your meals to get personalised insights!"),
+            }
+        except (json.JSONDecodeError, AttributeError):
+            return {
+                "title": "Stay on Track",
+                "tip": "Keep logging your meals to get personalised nutrition insights tailored to your goals.",
+            }

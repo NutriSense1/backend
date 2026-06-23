@@ -48,13 +48,13 @@ async def get_daily_review(current_user: CurrentUser = Depends(require_onboarded
     remaining_protein = user["daily_protein_target"] - summary["protein_consumed"]
 
     if summary["meals_logged"] == 0:
-        content = "You haven't logged anything yet today. Scan your first meal to get personalized insights!"
+        content = "You haven't logged anything yet today. Scan your first meal to get personalised insights!"
         title = "Let's get started"
     elif remaining_cals < 0:
         content = f"You're {abs(round(remaining_cals))} kcal over your target today. Consider a lighter dinner or a walk to balance it out."
         title = "Slightly over target"
     elif remaining_protein > 30:
-        content = f"You have {round(remaining_cals)} kcal and {round(remaining_protein)}g protein remaining. Prioritize a protein-rich meal next."
+        content = f"You have {round(remaining_cals)} kcal and {round(remaining_protein)}g protein remaining. Prioritise a protein-rich meal next."
         title = "Protein gap to close"
     else:
         content = f"You're on track with {round(remaining_cals)} kcal remaining today. Keep it up!"
@@ -71,6 +71,33 @@ async def get_daily_review(current_user: CurrentUser = Depends(require_onboarded
     }
 
 
+@router.get("/nutrition-tip")
+async def get_nutrition_tip(current_user: CurrentUser = Depends(require_onboarded_user)):
+    """
+    Returns a fresh, AI-generated personalised nutrition tip for the home screen,
+    grounded in the user's actual intake and goals for today.
+    """
+    supabase = get_supabase()
+    user = current_user.db_user
+    summary = _today_summary(supabase, current_user.id)
+
+    gemini = get_gemini_service()
+    tip = await gemini.generate_nutrition_tip(
+        user_goal=user["goal"],
+        user_name=user["name"].split()[0],  # first name only
+        calories_consumed=summary["calories_consumed"],
+        calorie_target=user["daily_calorie_target"],
+        protein_consumed=summary["protein_consumed"],
+        protein_target=user["daily_protein_target"],
+        water_consumed=summary["water_consumed_liters"],
+        water_target=user["water_goal_liters"],
+        meals_logged=summary["meals_logged"],
+        current_streak=user["current_streak"],
+        dietary_preferences=user.get("dietary_preferences") or [],
+    )
+    return tip
+
+
 @router.post("/coach/chat", response_model=CoachChatResponse)
 async def coach_chat(
     payload: CoachChatRequest,
@@ -79,14 +106,12 @@ async def coach_chat(
     supabase = get_supabase()
     user = current_user.db_user
 
-    # Save user message
     supabase.table("ai_coach_messages").insert({
         "user_id": current_user.id,
         "role": "user",
         "content": payload.message,
     }).execute()
 
-    # Load recent history for context
     history = (
         supabase.table("ai_coach_messages")
         .select("role, content")

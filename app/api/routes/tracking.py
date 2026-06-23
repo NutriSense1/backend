@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.deps import require_onboarded_user, CurrentUser
 from app.db.supabase_client import get_supabase
 from app.schemas.schemas import (
@@ -12,7 +12,7 @@ from app.services import achievements_service
 router = APIRouter(tags=["tracking"])
 
 
-# ─── Weight ─────────────────────────────────────────────────────────────────
+# ─── Weight ──────────────────────────────────────────────────────────────────
 
 @router.post("/weight-logs", response_model=WeightLogResponse, status_code=201)
 async def log_weight(
@@ -26,13 +26,11 @@ async def log_weight(
         "note": payload.note,
     }).execute()
 
-    # Keep the user's current weight in sync
     supabase.table("users").update({
         "weight_kg": payload.weight_kg,
         "xp": current_user.db_user["xp"] + 8,
     }).eq("id", current_user.id).execute()
 
-    # Achievement progress: weight_log_10
     count = (
         supabase.table("weight_logs")
         .select("id", count="exact")
@@ -52,23 +50,42 @@ async def log_weight(
 
 @router.get("/weight-logs", response_model=list[WeightLogResponse])
 async def get_weight_logs(
-    days: int = 30,
+    days: int = 90,
     current_user: CurrentUser = Depends(require_onboarded_user),
 ):
     supabase = get_supabase()
-    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-    result = (
+    query = (
         supabase.table("weight_logs")
         .select("*")
         .eq("user_id", current_user.id)
-        .gte("logged_at", cutoff)
-        .order("logged_at")
-        .execute()
+        .order("logged_at", desc=True)
     )
+    # days=0 means fetch all
+    if days > 0:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        query = query.gte("logged_at", cutoff)
+    result = query.execute()
     return result.data
 
 
-# ─── Water ──────────────────────────────────────────────────────────────────
+@router.delete("/weight-logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_weight_log(
+    log_id: str,
+    current_user: CurrentUser = Depends(require_onboarded_user),
+):
+    supabase = get_supabase()
+    result = (
+        supabase.table("weight_logs")
+        .delete()
+        .eq("id", log_id)
+        .eq("user_id", current_user.id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Log not found")
+
+
+# ─── Water ───────────────────────────────────────────────────────────────────
 
 @router.post("/water-logs", response_model=WaterLogResponse, status_code=201)
 async def log_water(
@@ -94,26 +111,69 @@ async def get_today_water(current_user: CurrentUser = Depends(require_onboarded_
     today_start = datetime.utcnow().strftime("%Y-%m-%dT00:00:00")
     result = (
         supabase.table("water_logs")
-        .select("amount_liters")
+        .select("*")
         .eq("user_id", current_user.id)
         .gte("logged_at", today_start)
+        .order("logged_at", desc=True)
         .execute()
     )
     total = sum(r["amount_liters"] for r in result.data)
-    return {"total_liters": total, "goal_liters": current_user.db_user["water_goal_liters"]}
+    return {
+        "total_liters": total,
+        "goal_liters": current_user.db_user["water_goal_liters"],
+        "logs": result.data,
+    }
 
 
-# ─── Steps ──────────────────────────────────────────────────────────────────
+@router.get("/water-logs", response_model=list[WaterLogResponse])
+async def get_water_logs(
+    date: str | None = None,
+    days: int = 7,
+    current_user: CurrentUser = Depends(require_onboarded_user),
+):
+    supabase = get_supabase()
+    query = (
+        supabase.table("water_logs")
+        .select("*")
+        .eq("user_id", current_user.id)
+        .order("logged_at", desc=True)
+    )
+    if date:
+        # Filter to a specific date
+        day_start = f"{date}T00:00:00"
+        day_end = f"{date}T23:59:59"
+        query = query.gte("logged_at", day_start).lte("logged_at", day_end)
+    else:
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        query = query.gte("logged_at", cutoff)
+    result = query.execute()
+    return result.data
+
+
+@router.delete("/water-logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_water_log(
+    log_id: str,
+    current_user: CurrentUser = Depends(require_onboarded_user),
+):
+    supabase = get_supabase()
+    result = (
+        supabase.table("water_logs")
+        .delete()
+        .eq("id", log_id)
+        .eq("user_id", current_user.id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Log not found")
+
+
+# ─── Steps ───────────────────────────────────────────────────────────────────
 
 @router.post("/step-logs/sync", status_code=201)
 async def sync_steps(
     payload: StepSyncRequest,
     current_user: CurrentUser = Depends(require_onboarded_user),
 ):
-    """
-    Upserts the day's step count, called whenever the Flutter app syncs
-    from Health Connect (Android) or HealthKit (iOS).
-    """
     supabase = get_supabase()
     result = supabase.table("step_logs").upsert({
         "user_id": current_user.id,
