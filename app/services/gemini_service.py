@@ -162,7 +162,6 @@ unhealthy food just to be nice, and do not be alarmist about reasonably healthy 
             return json.loads(response.text)
         except (json.JSONDecodeError, AttributeError) as e:
             logger.error(f"Gemini verdict response unparseable: {response.text!r}")
-            # Fail soft — return a minimal verdict rather than breaking the whole scan
             return {
                 "ai_verdict": f"This item has a health score of {health_score}/100.",
                 "positives": [],
@@ -182,7 +181,7 @@ unhealthy food just to be nice, and do not be alarmist about reasonably healthy 
         """
         history_text = "\n".join(
             f"{'User' if m['role'] == 'user' else 'Coach'}: {m['content']}"
-            for m in conversation_history[-10:]  # last 10 turns for context
+            for m in conversation_history[-10:]
         )
 
         prompt = f"""You are NutriSense's AI nutrition coach — warm, encouraging, and specific.
@@ -203,16 +202,6 @@ when relevant (calories remaining, protein gap, streak, etc). Do not use markdow
             config=types.GenerateContentConfig(temperature=0.6),
         )
         return response.text.strip()
-
-
-_gemini_service: GeminiService | None = None
-
-
-def get_gemini_service() -> GeminiService:
-    global _gemini_service
-    if _gemini_service is None:
-        _gemini_service = GeminiService()
-    return _gemini_service
 
     async def generate_nutrition_tip(
         self,
@@ -240,7 +229,7 @@ def get_gemini_service() -> GeminiService:
 User: {user_name}
 Goal: {user_goal}
 Dietary preferences: {dietary_preferences or ["none"]}
-Today so far: {calories_consumed:.0f} kcal consumed ({pct_cal}% of {calorie_target:.0f} kcal target), 
+Today so far: {calories_consumed:.0f} kcal consumed ({pct_cal}% of {calorie_target:.0f} kcal target),
   {protein_consumed:.0f}g protein ({pct_protein}% of {protein_target:.0f}g target),
   {water_consumed:.1f}L water ({water_consumed:.1f}/{water_target:.1f}L),
   {meals_logged} meals logged, {current_streak}-day streak.
@@ -269,3 +258,13 @@ Respond ONLY with valid JSON:
                 "title": "Stay on Track",
                 "tip": "Keep logging your meals to get personalised nutrition insights tailored to your goals.",
             }
+
+
+_gemini_service: GeminiService | None = None
+
+
+def get_gemini_service() -> GeminiService:
+    global _gemini_service
+    if _gemini_service is None:
+        _gemini_service = GeminiService()
+    return _gemini_service
