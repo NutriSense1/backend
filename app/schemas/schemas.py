@@ -164,12 +164,51 @@ class StepSyncRequest(BaseModel):
 
 # ─── AI Coach ───────────────────────────────────────────────────────────────
 
+class ChatAction(BaseModel):
+    """One agentic action auto-logged by the AI (water, food, weight, …)."""
+    type: str          # "water" | "food" | "weight" | "exercise" | "sleep"
+    display: str       # human-readable label shown in the app badge
+    # water
+    amount_liters: float | None = None
+    # food
+    name: str | None = None
+    meal_type: str | None = None
+    calories: float | None = None
+    protein: float | None = None
+    carbs: float | None = None
+    fat: float | None = None
+    # weight
+    weight_kg: float | None = None
+    # exercise
+    duration_min: int | None = None
+
+
 class CoachChatRequest(BaseModel):
     message: str
+    session_id: str | None = None   # None → create new session
 
 
 class CoachChatResponse(BaseModel):
     reply: str
+    session_id: str
+    session_title: str
+    actions: list[ChatAction] = []
+
+
+class ChatSession(BaseModel):
+    id: str
+    title: str
+    preview: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    actions: list[dict] = []
+    created_at: datetime
 
 
 class DailyReviewResponse(BaseModel):

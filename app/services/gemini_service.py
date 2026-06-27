@@ -174,10 +174,11 @@ unhealthy food just to be nice, and do not be alarmist about reasonably healthy 
         user_message: str,
         conversation_history: list[dict],
         user_context: dict,
-    ) -> str:
+        user_name: str = "there",
+    ) -> dict:
         """
-        Generates a reply for the AI Coach chat screen, grounded in the
-        user's actual logged data for the day.
+        Agentic coach reply — returns {"reply": str, "actions": list[dict]}.
+        Parses health mentions and returns structured actions to log to the DB.
         """
         history_text = "\n".join(
             f"{'User' if m['role'] == 'user' else 'Coach'}: {m['content']}"
@@ -194,14 +195,64 @@ Recent conversation:
 
 User: {user_message}
 
-Reply directly and conversationally in 2-4 sentences. Reference their actual numbers
-when relevant (calories remaining, protein gap, streak, etc). Do not use markdown formatting."""
+CRITICAL: Respond ONLY with valid JSON (no markdown, no backticks, nothing else):
+{{
+  "reply": "your warm 2-4 sentence conversational response (no markdown formatting)",
+  "actions": []
+}}
+
+Add entries to "actions" whenever the user mentions a health activity:
+
+Water:    {{"type":"water","amount_liters":0.3,"display":"300ml water"}}
+Food:     {{"type":"food","name":"Maggi","meal_type":"lunch","calories":350,"protein":12,"carbs":48,"fat":14,"display":"Maggi (~350 cal)"}}
+Weight:   {{"type":"weight","weight_kg":70.5,"display":"Weight: 70.5kg"}}
+Exercise: {{"type":"exercise","name":"walk","duration_min":30,"display":"30 min walk"}}
+Sleep:    {{"type":"sleep","hours":7,"display":"7 hrs sleep"}}
+
+WATER CONVERSIONS: 1 glass=200ml(0.2L), 1 mug/cup=250-300ml, 1 bottle=500ml, 1 big bottle=1L
+
+INDIAN FOOD ESTIMATES (calories, protein g, carbs g, fat g):
+Maggi (1 pkt): 350, 12, 48, 14
+Dal rice: 400, 14, 68, 8
+Roti (1): 120, 3, 22, 3
+Roti+sabzi: 320, 9, 52, 9
+Dosa: 170, 4, 30, 4
+Idli (2 pcs): 150, 4, 28, 2
+Biryani: 500, 18, 72, 16
+Poha: 250, 5, 44, 6
+Upma: 220, 5, 38, 5
+Paratha: 300, 6, 42, 12
+Samosa (1): 260, 4, 32, 13
+Chai: 50, 2, 6, 2
+Coffee: 60, 2, 8, 2
+Lassi: 180, 6, 24, 6
+Egg (boiled): 80, 6, 0, 5
+Banana: 90, 1, 22, 0
+Rice bowl: 300, 6, 65, 1
+Bread slice: 80, 3, 14, 1
+
+Detect meal_type from context or time ("dinner", "lunch", "breakfast", "snack").
+Log EVERY health mention automatically, even casual ones ("just had some chai").
+Reference actual numbers (calories remaining, streak, water goal) in your reply.
+Keep actions=[] only if nothing health-related is mentioned."""
 
         response = await self._generate(
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.6),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.5,
+            ),
         )
-        return response.text.strip()
+
+        try:
+            result = json.loads(response.text.strip())
+            return {
+                "reply": str(result.get("reply", "I'm here to help!")),
+                "actions": result.get("actions", []) if isinstance(result.get("actions"), list) else [],
+            }
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning(f"coach_chat_reply returned non-JSON: {response.text!r}")
+            return {"reply": response.text.strip(), "actions": []}
 
     async def generate_nutrition_tip(
         self,
